@@ -1,0 +1,11 @@
+# <type>(<scope>): <short summary, imperative, lowercase>
+#
+# Wrap body at 72.
+#
+# Conventional Commits. Types: feat, fix, chore, docs, refactor, test, build, ci.
+# Scopes by area: ui, layout, auth, browse, post, my-postings, my-jobs, profile,
+#   payment, subscription, chat, landing, api, db, infra, design, seed.
+#
+# Footer:
+#   Closes #<n>
+#   Signed-off-by: Name <email>
