@@ -1,0 +1,17 @@
+export const ErrorStrings = {
+  ErrorTryAgain: "An error occurred. Please try again.",
+  InvalidCategory: "The specified category is invalid.",
+  InvalidOffer: "The specified offer is invalid.",
+  InvalidPaymentMethod: "The specified payment method is invalid.",
+  InvalidProfileType: "The speicifed profile type is invalid.",
+  InvalidRequest: "The specified service request is invalid.",
+  NoPaymentMethod: "A party has not registered any payment method.",
+  NotAConsumer: "This functionality is only available to consumers.",
+  NotAProvider: "This functionality is only available to providers.",
+  OfferPriceExceedsBudget: "Offer price exceeds service request's budget",
+  PremiumAlreadyActive: "You already have an active Premium subscription.",
+  PremiumNotActive: "You do not have an active Premium subscription.",
+  PremiumRequired: "This feature requires a Premium account.",
+  RequestAlreadyComplete: "This request is already complete.",
+  SessionExpired: "Session expired.",
+} as const;
