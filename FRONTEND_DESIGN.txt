@@ -1,0 +1,93 @@
+Frontend Design
+
+
+Conventions
+
+Next.js 15 App Router, TypeScript, Tailwind v4. One application process serves both the user-facing pages and the JSON API.
+
+Pages are file-system routed under src/app. Folders in parentheses, such as (landing) and (main), group routes that share a layout without contributing a URL segment. Unwrapped folders, such as Account, appear in the URL as-is. The "use client" directive marks browser components.
+
+Browser data fetching goes through one helper that prepends /api, lowercases the path, and sends the session cookie. Component state is local; server data flows through small typed hooks exposing { data, loading, error }.
+
+
+1. Routing and Layout
+
+  Three layouts compose the application:
+
+  1.1  Root layout (src/app/layout.tsx)
+       Loads the Inter font, applies metadata, wraps the tree in a Suspense boundary.
+
+  1.2  Landing layout (src/app/(landing)/layout.tsx)
+       Public Header and Footer. Active on the marketing home at "/".
+
+  1.3  Main layout (src/app/(main)/layout.tsx)
+       Signed-in Header and Footer. Wraps children in AuthGuard, which calls useAuth() on mount and redirects logged-out users to /Account/Login.
+
+  Account flow pages (Login, Register, ForgotPassword, ResetPassword, ConfirmEmail, plus the two Confirmation pages) sit outside the (main) group so logged-out users can reach them.
+
+
+2. Page Inventory
+
+  Eighteen routes are organised by experience:
+
+  Path                                    Purpose                                Calls
+  --------------------------------------  -------------------------------------  ----------------------------------------
+  /                                       Marketing landing                      (none)
+  /home                                   Signed-in landing                      GET /api/account
+  /browse-task                            Marketplace search                     GET /api/request/findrequests
+  /post                                   Task posting form                      POST /api/request
+  /my-requests, /my-requests/details      Consumer task list + detail            GET /api/request, POST select offer
+  /my-tasks, /my-tasks/details            Provider task list + detail            POST /api/request/completerequest
+  /chat                                   Direct messaging                       GET/POST /api/message
+  /profile                                Composite profile editor               PATCH /api/account, /api/profile/provider
+  /profile/public                         Read-only Provider view                GET /api/profile/provider
+  /profile/your-plan                      Premium subscription                   POST activatepremium
+  /add-payment-method                     Stored card form                      POST /api/payment/card
+  /Account/*                              Auth flows (login, register, recovery) POST /api/account/*
+
+
+3. Component Organisation
+
+  Shared primitives live in src/app/components:
+    - buttons/PrimaryButton.tsx
+    - modals/PrimaryModal.tsx
+
+  Each page owns its sub-components in a sibling components/ folder, scoping every screen's surface to a single directory. Route groups keep their own Header and Footer because the public and signed-in shells differ visually.
+
+
+4. Data Layer
+
+  Two folders carry the data plumbing.
+
+  helpers/api/
+    - request.ts: fetch wrapper. Prepends /api, lowercases the path, sends the session cookie. Converts GET data to query params and non-GET data to FormData (JSON for string inputs).
+    - <domain>.ts: typed one-liners per domain (account, profile, categories, messages, notifications, offers, payment, plan, request, reviews, tasks, card, auth).
+
+  hooks/
+    - useQuery*: load a resource on mount; expose { data, loading, error }.
+    - useMutate*: wrap write operations; expose mutator + in-flight state.
+    - useAuth: the auth-check hook consumed by AuthGuard.
+
+  Wire-payload TypeScript types live in constants/type.ts; static dropdown lists in constants/list.ts.
+
+
+5. Design Language
+
+  Tailwind v4 with CSS-first config in src/app/globals.css under the @theme block. Three brand colours:
+
+    --color-primary    #3A37C6   primary actions, links
+    --color-secondary  #B2B1EC   hover, accents
+    --color-tertiary   #EEEEFF   card backgrounds
+
+  Inter is loaded through next/font/google with a Helvetica fallback. Headers run 48 px, labels 22 px, body 20 px. Iconography combines react-icons (input adornments) and lucide-react (feature blocks). Data visualisation uses Recharts plus react-circular-progressbar. Dates are formatted through dayjs.
+
+
+6. Auth Integration
+
+  The frontend never reads or writes the session cookie directly. The integration runs through one hook and one guard.
+
+  6.1  useAuth (src/app/hooks/useAuth.ts) calls GET /api/account on mount. A 200 means logged-in and exposes the user's id; a 404 means logged-out.
+
+  6.2  AuthGuard consumes useAuth and redirects when needed.
+
+  6.3  Account flow pages follow a uniform shape: submit, await, redirect on success, modal on failure. Tokens for reset and confirmation come from ?token=.

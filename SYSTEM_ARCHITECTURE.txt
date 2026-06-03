@@ -1,0 +1,87 @@
+System Architecture
+
+
+Conventions
+
+InTalentMatch runs as a single Next.js application on Vercel, backed by a managed PostgreSQL cluster, fronted by Vercel's global edge network. Every user-facing concern flows through the same Next.js process; operational concerns sit around it through purpose-built services.
+
+
+1. Topology
+
+  Tier            Provider / Component             Role
+  --------------  -------------------------------  ---------------------------------------------
+  Edge            Vercel CDN                       TLS termination, static cache, dynamic forward
+  Application     Next.js 15 on Vercel Functions   Pages and /api routes in one bundle
+  Persistence     Managed PostgreSQL 17            Schema + connection pooler in transaction mode
+  Background      Vercel Cron                      Daily scheduled invocations
+  Email           Postmark                         Transactional egress
+  Source + CI     GitHub + GitHub Actions          Source, workflows, release tags
+  Observability   Sentry, log drain, uptime probe  Errors, logs, alerting
+
+
+2. Request Lifecycle
+
+  A request lands at the edge and is classified as static (returned from cache) or dynamic (forwarded to a Next.js function in the primary region). Inside the function, the route handler reads the session cookie, parses input through the request-parsing helpers, and calls one or more services. Services own all database access and compose business operations inside Prisma transactions where atomicity is required. Notifications and email are dispatched as side effects after writes commit. The response is shaped by mappers into a stable DTO and returned through the edge.
+
+
+3. Domain Boundaries
+
+  Nine domains, each backed by a service module and a discrete slice of the schema. Routes never cross-write across domains directly; cross-domain effects compose through service calls.
+
+  3.1  Identity: account row, password hashing, session cookie issuance.
+  3.2  Roles: Consumer and Provider profiles, each one-to-one with an account.
+  3.3  Marketplace: Requests, Offers and the selection-to-completion lifecycle.
+  3.4  Reputation: Reviews and the Provider rating roll-up.
+  3.5  Messaging: direct messages between two accounts.
+  3.6  Notifications: server-emitted alert stream and its optional email channel.
+  3.7  Payments: stored cards and the append-only command ledger.
+  3.8  Subscription: Premium activation, deactivation and the renewal sweep.
+  3.9  Taxonomy: Category list and its membership joins.
+
+
+4. Persistence and Transactions
+
+  The schema is the source of truth at prisma/schema.prisma; every change ships as a versioned migration applied in the deploy pipeline. Migrations are backwards-compatible with the deployed code revision by policy, which keeps the previous revision functional during a deploy window.
+
+  Every multi-row mutation runs inside a Prisma transaction. The settlement of a completed task is one atomic write covering request update, ledger inserts, counter increment and both notifications. Helpers that accept either the global client or a transaction client let callers compose payment writes into a wider business transaction.
+
+
+5. Identity, Sessions and Recovery
+
+  Email-and-password is the primary credential, hashed with bcrypt at twelve rounds. The session is one httpOnly cookie carrying the account ID, with a 30-day lifetime when "remember me" is selected and a session lifetime otherwise.
+
+  Email confirmation and password reset use HS256 JWTs signed with AUTH_SECRET, anchored to the user's current security stamp. A successful reset rotates the stamp and invalidates every other outstanding token from that account, with no token table to revoke against. Federated sign-in (Google, Microsoft) is wired through Auth.js alongside the password path; existing accounts auto-link by verified email.
+
+
+6. Background, Email and Observability
+
+  Three operational channels surround the runtime.
+
+  Background:
+    - Premium sweep runs nightly through Vercel Cron, settling renewals or downgrades for subscriptions older than one month.
+    - Health probe hits the public surface hourly and pages on consecutive failures.
+
+  Email goes out through Postmark as the single egress path, with SPF, DKIM and DMARC configured at DNS. The three categories are confirmation links (24-hour TTL), password reset links (1-hour TTL), and an optional notification-copy stream gated by NOTIFICATION_EMAIL.
+
+  Observability fans out: Sentry captures exceptions with source maps; Vercel function logs drain to a long-term store; Vercel reports per-route latency percentiles; alerts run through Slack and PagerDuty from CI failures, Sentry events and the uptime probe.
+
+
+7. Security
+
+  TLS 1.3 with HSTS at the edge. Session cookies are httpOnly, sameSite=lax, secure. Recovery links are signed JWTs anchored to the rotating security stamp. Every state-mutating endpoint runs the session check before doing anything else; endpoints scoped to a role verify ownership before mutation. Login and forgot-password return uniform responses to defeat account-enumeration probes.
+
+  Application secrets sit in Vercel's per-environment secret store; deployment secrets in GitHub Environments. Rotation is a dashboard change followed by a redeploy. npm audit at high severity blocks merges; Dependabot raises PRs for security updates.
+
+
+8. Resilience and Scaling
+
+  Vercel autoscales the function pool with traffic; cold starts are kept warm by background pings on hot routes. Database connections scale through the pooler; reporting queries route to a replica during business hours. Money-moving operations write to the immutable PaymentCommand ledger, which is the audit record and the basis for future reconciliation. Replays of completion through accidental retry are short-circuited by the request's completedDate check.
+
+  Recovery objective is one hour. A monthly recovery drill validates that a production snapshot can be restored to a parallel environment within the window.
+
+
+9. Environments and Release
+
+  Three environments: development on every developer's machine, staging as a Vercel project plus a managed Postgres, production as a Vercel project plus a managed Postgres. Each carries its own secret store and database; the schema is identical across all three.
+
+  Staging deploys automatically on every push to main; production deploys on a tagged release after manual approval. Rollback is a one-click revert in Vercel to the previous immutable deployment. The full pipeline lives in CI/CD Design.
