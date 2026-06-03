@@ -1,0 +1,35 @@
+# Default owner. Catches anything not matched below.
+*                                       @notabota
+
+# Design system + landing visuals
+src/components/ui/                      @hoangngocanhpham
+src/components/layout/                  @hoangngocanhpham
+src/app/globals.css                     @hoangngocanhpham
+src/app/(landing)/                      @hoangngocanhpham
+public/                                 @hoangngocanhpham
+
+# Shared domain components
+src/components/domain/                  @hoangngocanhpham @hoaiphuong26
+
+# Browse + my-jobs + payment
+src/app/(main)/browse-task/             @hoaiphuong26
+src/app/(main)/my-tasks/                @hoaiphuong26
+src/app/(main)/add-payment-method/      @hoaiphuong26
+
+# Auth + post + profile (employer/candidate)
+src/app/Account/                        @qhuongneh
+src/app/(main)/post/                    @qhuongneh
+src/app/(main)/profile/                 @qhuongneh
+
+# My postings + chat + subscription
+src/app/(main)/my-requests/             @VietVo0807
+src/app/(main)/chat/                    @VietVo0807
+src/app/(main)/profile/your-plan/       @VietVo0807
+
+# Infra, db, scripts, ci
+.github/                                @notabota
+prisma/                                 @notabota
+scripts/                                @notabota
+*.config.*                              @notabota
+package.json                            @notabota
+package-lock.json                       @notabota
