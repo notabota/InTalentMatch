@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+    --background: #ffffff;
+    --foreground: #000022;
+    --font-sans: var(--font-inter), Helvetica, sans-serif;
+    --font-serif: var(--font-serif-display), Georgia, serif;
+}
+
+@theme {
+    --color-primary: #061257;
+    --color-primary-hover: #0a1d7a;
+    --color-accent: #0E65FB;
+    --color-accent-hover: #0a51cc;
+    --color-primary-soft: #D3E1FF;
+    --color-surface: #EEEFFF;
+    --color-surface-muted: #F5F5F6;
+    --color-border: #E2E4F0;
+
+    --color-success: #2FA968;
+    --color-danger: #E0413B;
+    --color-warning: #E8A23D;
+    --color-star: #FCD53F;
+
+    --color-text: #000022;
+    --color-text-muted: #6B7280;
+
+    --radius-card: 14px;
+    --radius-input: 8px;
+
+    --shadow-card: 0 1px 3px rgba(6, 18, 87, 0.08), 0 1px 2px rgba(6, 18, 87, 0.06);
+}
+
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+}
+
+body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+}
+
+.font-serif {
+    font-family: var(--font-serif);
+}
+
+.font-sans {
+    font-family: var(--font-sans);
+}
+
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid var(--color-primary);
+    box-shadow: 0 1px 3px rgba(6, 18, 87, 0.3);
+    cursor: pointer;
+    margin-top: -6px;
+}
+
+input[type="range"]::-moz-range-thumb {
+    height: 18px;
+    width: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid var(--color-primary);
+    box-shadow: 0 1px 3px rgba(6, 18, 87, 0.3);
+    cursor: pointer;
+}
