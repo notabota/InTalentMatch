@@ -1,0 +1,105 @@
+Database Design
+
+
+Conventions
+
+PostgreSQL 17, accessed exclusively through Prisma 6. Schema in prisma/schema.prisma. Every change ships as a versioned migration applied by prisma migrate deploy in the deploy pipeline.
+
+Column names follow PascalCase on disk and camelCase in code through Prisma's @map / @@map directives, so the SQL surface stays self-documenting while application code stays idiomatic TypeScript. UUID primary keys default to gen_random_uuid(); timestamps are timestamptz; money is NUMERIC.
+
+
+1. Schema Overview
+
+  Fifteen tables in eight functional areas.
+
+  Identity is a single AspNetUsers table holding the account, password hash, security stamp, contact fields and the Identity-table flags.
+
+  Roles are Consumer and Provider, each one-to-one with the account through a unique foreign key.
+
+  Marketplace is Request and Offer joined cyclically: a Request points to its selected Offer; every Offer points to its parent Request. The cycle is handled through two named Prisma relations and two independent SQL constraints.
+
+  Reputation is one Review per completed Request through a unique constraint. Messaging is Message between two accounts with a composite (sender, receiver) index. Notifications are append-only alerts addressed to an account.
+
+  Payment is two tables: PaymentMethod uses single-table inheritance through a Type discriminator (cards today, shaped for additional kinds); PaymentCommand is the append-only ledger of every money movement.
+
+  Taxonomy is a flat Category list plus two composite-key join tables for Provider and Request memberships.
+
+
+2. Identifiers
+
+  Every Id outside the Identity table is uuid generated server-side at insert. The Identity table keeps a text primary key to honour the AspNetUsers contract; the application generates UUID values at registration. Join tables use composite primary keys on their two foreign-key columns.
+
+
+3. Constraints and Cascades
+
+  Cascade rules are tuned per relationship.
+
+  Edge                                Rule                Effect
+  ----------------------------------  ------------------  -----------------------------------------
+  Account → owned tables              CASCADE             Account deletion purges owned rows
+  Request → Offer/Review/Categories   CASCADE             Request deletion cascades to children
+  Offer → Request.selectedId          SET NULL            Selected offer can be deleted safely
+  PaymentMethod → PaymentCommand      SET NULL            Ledger row survives, preserving audit
+
+  Unique constraints enforce: one normalised user-name on Identity, one Consumer per account, one Provider per account, one Review per Request.
+
+
+4. Indexes
+
+  - EmailIndex on AspNetUsers.NormalizedEmail backs recovery lookup.
+  - UserNameIndex on AspNetUsers.NormalizedUserName is unique and backs login.
+  - Categories has an index on Name for auto-create-on-demand.
+  - Messages has a composite (SenderId, ReceiverId) index for conversation history.
+  - Reviews has a unique RequestId for one-review-per-task plus by-request lookup.
+  - Consumers and Providers each have a unique AccountId index for profile lookup.
+  - Prisma generates an index on every foreign-key column, backing cascades and joins.
+
+
+5. Transactions
+
+  Every operation that mutates more than one row in different ways runs inside prisma.$transaction. The settlement of a completed task is one atomic write covering request update, payment ledger inserts, counter increment and both notifications.
+
+  Helpers like transferInTx accept an existing transaction client so payment writes compose into the surrounding business transaction.
+
+  Optimistic concurrency anchors on the AspNetUsers ConcurrencyStamp column. For marketplace tables, careful read-then-write ordering inside transactions covers contention windows.
+
+
+6. Migrations and Seed
+
+  Step                  Command                       Purpose
+  --------------------  ----------------------------  ------------------------------------
+  Author migration      prisma migrate dev            Generate SQL under prisma/migrations
+  Apply pending         prisma migrate deploy         Used in CI before traffic switches
+  Drift check           prisma migrate diff           Catches schema-without-migration PRs
+  Seed                  prisma db seed                Loads three accounts and fixtures
+  Reset                 prisma migrate reset          Baseline + seed in one command
+
+  Every migration is backwards-compatible with the deployed code revision. Rename and drop changes span two releases: release N adds the new column, release N+1 removes the old once no code references it.
+
+
+7. Connection Management
+
+  The application connects through a pooler in transaction-pooling mode (PgBouncer self-hosted, the managed provider's pooler in managed environments), so the function pool scales without scaling the database connection count. The Prisma client is a singleton cached on globalThis in development. Production sessions carry a statement_timeout matched to the function's response budget.
+
+
+8. Backup, Recovery and Security
+
+  The managed Postgres tier maintains a continuous write-ahead log archive supporting point-in-time recovery within the previous 30 days. A monthly drill restores a production snapshot to an isolated environment, runs the seed and a smoke test, and reports timing to the operations log.
+
+  Network reach is limited to the runtime VPC and the operations bastion, with TLS enforced through sslmode=require. The application's database role holds CREATE/INSERT/UPDATE/DELETE/SELECT on owned tables; schema-altering privileges sit on a separate migration role used only during deploys. Storage and backups are encrypted at rest. Password hashes are bcrypt at twelve rounds; the security-stamp column rotates on every password change. The PaymentCommand ledger is append-only by convention.
+
+
+9. Data Lifecycle and Operations
+
+  Account deletion cascades through every owned table. The payment ledger survives through SET NULL, preserving the audit record. Backups are retained 30 days; application and query logs retain one year. Personal data export and deletion requests run through a documented operator workflow.
+
+  Common operator queries live as named scripts under scripts/ops. Ad-hoc data fixes are committed under scripts/fixups, reviewed in a PR, executed by a designated operator with each run logged.
+
+
+10. Environments
+
+  Each environment carries its own database. The schema is identical across all three; only the data and connection string differ.
+
+    Development: local Postgres per developer, .env gitignored.
+    Staging: managed Postgres dedicated to staging, seeded weekly with sanitised production data.
+    Production: managed Postgres backed by read replicas in a second region for disaster-recovery failover.

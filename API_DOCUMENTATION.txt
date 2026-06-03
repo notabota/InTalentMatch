@@ -1,0 +1,127 @@
+Backend API
+
+
+Conventions
+
+All routes are under /api. JSON in, JSON out. Endpoints accept JSON or form-encoded bodies interchangeably. Paths are case-insensitive.
+
+Authentication is a session cookie named "intalentmatch_account" carrying the account ID. It is set on register or login, sent automatically by the browser, and cleared on logout.
+
+Response codes:
+
+  Code  Meaning                                       Body
+  ----  --------------------------------------------  ------------
+  200   Success                                       JSON
+  400   Bad input or business-rule violation          short string
+  401   Cron endpoint without bearer secret           null
+  404   No session, or record not found               null
+
+Timestamps are ISO 8601 UTC. Money values are JSON numbers.
+
+
+1. Accounts
+
+  Identity, registration, login, recovery and confirmation flows. Passwords are bcrypt hashes; confirmation and reset use HS256 JWTs anchored to a per-account security stamp that rotates on every password change.
+
+  1.1  POST /api/account/register
+       Creates the account, hashes the password, sets the session cookie, dispatches a confirmation email when Postmark is configured.
+
+  1.2  POST /api/account/login
+       Verifies the bcrypt hash and sets the cookie. Failures return uniform "Invalid email or password." to defeat enumeration.
+
+  1.3  POST /api/account/logout
+       Clears the cookie.
+
+  1.4  GET /api/account
+       Returns the caller's profile. 404 when no session.
+
+  1.5  PATCH /api/account
+       Updates name, phone, address. Only sent fields are written.
+
+  1.6  POST /api/account/forgotpassword, /resetpassword
+       Forgot returns 200 unconditionally to defeat probing; reset rotates the security stamp and invalidates outstanding tokens.
+
+  1.7  POST /api/account/confirmemail, /resendemailconfirmation
+       Confirm flips emailConfirmed. Resend issues a fresh link.
+
+
+2. Profiles
+
+  An Account holds identity. To participate, the user attaches a Consumer profile, a Provider profile, or both. Provider reads apply a lazy expiry check that downgrades stale Premium flags in place.
+
+  2.1  Consumer
+       POST /api/profile/consumer creates one. GET /api/profile/consumer fetches the caller's, or any account's via ?accountId=.
+
+  2.2  Provider
+       POST /api/profile/provider creates one. GET returns the profile with categories, completed tasks and Premium state. PATCH updates description and the category list (full replacement; unknown names are auto-created).
+
+  2.3  Premium
+       Activation at POST /api/profile/provider/activatepremium runs the renewal debit and flag update in one transaction. Price is $8.99/month, with a $2.91/month rate for emails ending in a promotional domain (configured through the PROMO_EMAIL_DOMAIN environment variable). Deactivation flips one flag; the daily cron cleans up at period end.
+
+
+3. Tasks
+
+  Marketplace primitive: a Request posted by a Consumer with Offers from Providers. Lifecycle is post, browse, bid, select, complete.
+
+    POST /api/request                            Create task (Consumer)
+    GET  /api/request?requestId=                 Fetch task with offers and categories
+    GET  /api/request?type=consumer|provider     List caller's tasks by role
+    GET  /api/request/findrequests               Search open tasks
+    POST /api/request/offer                      Submit bid (Provider)
+    POST /api/request/offer/selectoffer          Accept a bid (Consumer)
+    POST /api/request/completerequest            Settle payment and mark complete
+
+  Completion runs in one transaction:
+
+    1.  Debit the Consumer's first card.
+    2.  Credit the Provider's first card the same amount.
+    3.  Debit the platform fee (10% standard, 0% Premium) from the Provider.
+    4.  Set completedDate.
+    5.  Notify both parties.
+
+  Aborts atomically if either party lacks a stored card.
+
+
+4. Reviews
+
+  After completion, the Consumer leaves one review per task. The Provider's totalRating and reviewCount bump in the same transaction so the averageRating exposed by the Provider profile stays consistent.
+
+    POST /api/review                  Rating 1..5, optional description
+    GET  /api/review?requestId=       Fetch the review for a task
+    GET  /api/review?providerId=      List reviews for a Provider
+
+
+5. Messaging and Notifications
+
+  Direct messages between two accounts use GET / POST /api/message with a peerId query parameter. Sending writes the message and a notification to the recipient.
+
+  Notifications are server-emitted only. The notification API is read-only from clients: GET /api/notification returns the caller's notifications newest-first with ?after= for polling. Notifications fire on: new bid, bid selected or unselected, task completed, review posted, message received, Premium activated, extended or cancelled. When NOTIFICATION_EMAIL=true, each notification is also dispatched as a Postmark email.
+
+
+6. Payment and Categories
+
+  Stored cards are listed through GET /api/payment (exposes id and number only) and added through POST /api/payment/card (server-side validation of number, MM/YY expiry, three-digit CVV, name). The discriminator column on PaymentMethods is shaped for additional kinds.
+
+  GET /api/category returns every category currently in use, auto-created on demand by tasks and profiles. Unauthenticated.
+
+
+7. Background
+
+  POST /api/cron/premium is the daily sweep. It authenticates against CRON_SECRET via Authorization: Bearer. For Providers whose subscription is older than one month:
+
+    - inactive: clears the Premium flags,
+    - active:   attempts renewal debit. Success extends the subscription; failure cancels. Notifies the Provider in either case.
+
+  Returns { status, inactiveExpired, renewed, cancelled }.
+
+
+8. Configuration
+
+  DATABASE_URL          PostgreSQL connection string.
+  AUTH_SECRET           ≥ 32 chars. Signs confirmation and reset JWTs.
+  APP_ORIGIN            Public URL used in outbound email links.
+  POSTMARK_API_KEY      Postmark server-side API key.
+  POSTMARK_FROM         Sender display name and verified address.
+  CRON_SECRET           Bearer secret for the cron endpoint.
+  NOTIFICATION_EMAIL    "true" enables email copies of in-app notifications.
+  PROMO_EMAIL_DOMAIN    Optional. Email suffix that qualifies for the discounted Premium price.
