@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+generator erd {
+  provider = "prisma-erd-generator"
+  output   = "./erd.svg"
+  disabled = true
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Account {
+  id                   String    @id @db.Text
+  userName             String?   @map("UserName") @db.VarChar(256)
+  normalizedUserName   String?   @unique(map: "UserNameIndex") @map("NormalizedUserName") @db.VarChar(256)
+  email                String?   @map("Email") @db.VarChar(256)
+  normalizedEmail      String?   @map("NormalizedEmail") @db.VarChar(256)
+  emailConfirmed       Boolean   @default(false) @map("EmailConfirmed")
+  passwordHash         String?   @map("PasswordHash") @db.Text
+  securityStamp        String?   @map("SecurityStamp") @db.Text
+  concurrencyStamp     String?   @map("ConcurrencyStamp") @db.Text
+  phoneNumber          String?   @map("PhoneNumber") @db.Text
+  phoneNumberConfirmed Boolean   @default(false) @map("PhoneNumberConfirmed")
+  twoFactorEnabled     Boolean   @default(false) @map("TwoFactorEnabled")
+  lockoutEnd           DateTime? @map("LockoutEnd") @db.Timestamptz
+  lockoutEnabled       Boolean   @default(false) @map("LockoutEnabled")
+  accessFailedCount    Int       @default(0) @map("AccessFailedCount")
+  fullName             String?   @map("FullName") @db.Text
+  address              String?   @map("Address") @db.Text
+
+  consumer         Consumer?
+  provider         Provider?
+  notifications    Notification[]
+  paymentMethods   PaymentMethod[]
+  messagesSent     Message[]       @relation("MessagesSent")
+  messagesReceived Message[]       @relation("MessagesReceived")
+
+  @@index([normalizedEmail], map: "EmailIndex")
+  @@map("AspNetUsers")
+}
+
+model Category {
+  id   String @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  name String @map("Name") @db.Text
+
+  providers ProviderCategory[]
+  requests  RequestCategory[]
+
+  @@index([name])
+  @@map("Categories")
+}
+
+model Consumer {
+  id                String @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  accountId         String @unique @map("AccountId") @db.Text
+  requestsPosted    Int    @default(0) @map("RequestsPosted")
+  requestsCompleted Int    @default(0) @map("RequestsCompleted")
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  requests Request[]
+
+  @@map("Consumers")
+}
+
+model Provider {
+  id                   String    @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  accountId            String    @unique @map("AccountId") @db.Text
+  description          String?   @map("Description") @db.Text
+  totalRating          Int       @default(0) @map("TotalRating")
+  reviewCount          Int       @default(0) @map("ReviewCount")
+  isPremium            Boolean   @default(false) @map("IsPremium")
+  isSubscriptionActive Boolean   @default(false) @map("IsSubscriptionActive")
+  subscriptionDate     DateTime? @map("SubscriptionDate") @db.Timestamptz
+
+  account    Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  offers     Offer[]
+  categories ProviderCategory[]
+
+  @@map("Providers")
+}
+
+model Request {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  consumerId     String    @map("ConsumerId") @db.Uuid
+  selectedId     String?   @map("SelectedId") @db.Uuid
+  title          String    @map("Title") @db.Text
+  description    String    @map("Description") @db.Text
+  location       String    @map("Location") @db.Text
+  budget         Decimal   @map("Budget") @db.Decimal
+  dueDate        DateTime? @map("DueDate") @db.Timestamptz
+  remoteEligible Boolean   @map("RemoteEligible")
+  completedDate  DateTime? @map("CompletedDate") @db.Timestamptz
+
+  consumer   Consumer          @relation(fields: [consumerId], references: [id], onDelete: Cascade)
+  selected   Offer?            @relation("RequestSelectedOffer", fields: [selectedId], references: [id])
+  offers     Offer[]           @relation("RequestOffers")
+  review     Review?
+  categories RequestCategory[]
+
+  @@map("Requests")
+}
+
+model Offer {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  providerId String   @map("ProviderId") @db.Uuid
+  requestId  String   @map("RequestId") @db.Uuid
+  price      Decimal? @map("Price") @db.Decimal
+
+  provider          Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  request           Request   @relation("RequestOffers", fields: [requestId], references: [id], onDelete: Cascade)
+  selectedByRequest Request[] @relation("RequestSelectedOffer")
+
+  @@map("Offers")
+}
+
+model Review {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  requestId   String  @unique @map("RequestId") @db.Uuid
+  rating      Int     @map("Rating")
+  description String? @map("Description") @db.Text
+
+  request Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("Reviews")
+}
+
+model Message {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  senderId   String   @map("SenderId") @db.Text
+  receiverId String   @map("ReceiverId") @db.Text
+  timestamp  DateTime @map("Timestamp") @db.Timestamptz
+  content    String   @map("Content") @db.Text
+
+  sender   Account @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver Account @relation("MessagesReceived", fields: [receiverId], references: [id], onDelete: Cascade)
+
+  @@index([senderId, receiverId])
+  @@map("Messages")
+}
+
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  accountId String   @map("AccountId") @db.Text
+  timestamp DateTime @map("Timestamp") @db.Timestamptz
+  title     String   @map("Title") @db.Text
+  content   String   @map("Content") @db.Text
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("Notifications")
+}
+
+model PaymentMethod {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  accountId String @map("AccountId") @db.Text
+  type      String @map("Type") @db.VarChar(21)
+
+  number String? @map("Number") @db.Text
+  expiry String? @map("Expiry") @db.Text
+  name   String? @map("Name") @db.Text
+  cvv    String? @map("Cvv") @db.Text
+
+  account     Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  commandsOut PaymentCommand[] @relation("PaymentFrom")
+  commandsIn  PaymentCommand[] @relation("PaymentTo")
+
+  @@map("PaymentMethods")
+}
+
+model PaymentCommand {
+  id     String  @id @default(dbgenerated("gen_random_uuid()")) @map("Id") @db.Uuid
+  fromId String? @map("FromId") @db.Uuid
+  toId   String? @map("ToId") @db.Uuid
+  amount Decimal @map("Amount") @db.Decimal
+  type   String  @map("Type") @db.Text
+
+  from PaymentMethod? @relation("PaymentFrom", fields: [fromId], references: [id])
+  to   PaymentMethod? @relation("PaymentTo", fields: [toId], references: [id])
+
+  @@map("PaymentCommands")
+}
+
+model ProviderCategory {
+  providerId String @map("ProviderId") @db.Uuid
+  categoryId String @map("CategoryId") @db.Uuid
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, categoryId])
+  @@map("ProviderCategories")
+}
+
+model RequestCategory {
+  requestId  String @map("RequestId") @db.Uuid
+  categoryId String @map("CategoryId") @db.Uuid
+
+  request  Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, categoryId])
+  @@map("RequestCategories")
+}
